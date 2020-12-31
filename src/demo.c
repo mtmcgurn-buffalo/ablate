@@ -36,6 +36,12 @@ static void g0_temp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
     g0[0] = u_tShift*1.0;
 }
 
+static void f0_bd(PetscInt dim,PetscInt Nf,PetscInt NfAux,const PetscInt uOff[],const PetscInt uOff_x[],const PetscScalar u[],const PetscScalar u_t[],const PetscScalar u_x[],const PetscInt aOff[],const PetscInt aOff_x[],const PetscScalar a[],const PetscScalar a_t[],const PetscScalar a_x[],PetscReal t,const PetscReal x[],const PetscReal n[],PetscInt numConstants,const PetscScalar constants[],PetscScalar f0[])
+{
+  PetscInt    d;
+
+  for (d=0; d<dim; ++d) f0[d] = -7.5;//-1000.0;
+}
 
 static PetscErrorCode SetupParameters(AppCtx *user)
 {
@@ -196,6 +202,8 @@ static PetscErrorCode SetupProblem(DM dm, AppCtx *user)
             f1_heat_conduction    //f1	- integrand for the test function gradient term
     );CHKERRQ(ierr);
     ierr = PetscDSSetJacobian(ds, 0, 0, g0_temp, NULL, NULL, g3_temp);CHKERRQ(ierr);
+    ierr = PetscDSSetBdResidual(ds, 0, f0_bd, NULL);CHKERRQ(ierr);
+
 
     /* Setup constants */
     {
@@ -213,9 +221,9 @@ static PetscErrorCode SetupProblem(DM dm, AppCtx *user)
 
 
     // setup boundary
-    const PetscInt ids[] = {4,5};
+    const PetscInt ids[] = {1, 2, 3, 4};
     ierr = PetscDSAddBoundary(ds,
-                              DM_BC_ESSENTIAL,// A Dirichlet condition using a function of the coordinates
+                              DM_BC_NATURAL,// A Dirichlet condition using a function of the coordinates
                               "bottom wall velocity",
                               "Face Sets",//The label defining constrained points
                               0,//The first field id temperature
@@ -223,7 +231,7 @@ static PetscErrorCode SetupProblem(DM dm, AppCtx *user)
                               NULL, // The components to constrain
                               (void (*)(void))boundary,
                               NULL, // A pointwise function giving the time derviative of the boundary values, or NULL
-                              2,
+                              4,
                               ids,
                               ctx);CHKERRQ(ierr);
 
@@ -288,15 +296,61 @@ static PetscErrorCode SetupDiscretization(DM dm, AppCtx *user) {
     PetscFunctionReturn(0);
 }
 
+/* < v, n_e > */
+static void objective(PetscInt dim, PetscInt Nf, PetscInt NfAux,
+                 const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                 const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                 PetscReal t, const PetscReal x[],  PetscInt numConstants, const PetscScalar constants[], PetscScalar *f0)
+{
+  const PetscReal rhoCp = PetscRealPart(constants[0]);
+  f0[0] = u[0]*rhoCp;
+}
+
 static PetscErrorCode MonitorError(TS ts, PetscInt step, PetscReal time, Vec u, void *ctx)
 {
     PetscFunctionBeginUser;
-    PetscErrorCode ierr = PetscPrintf(PETSC_COMM_WORLD, "Timestep: %04d time = %-8.4g\n", (int) step, (double) time);CHKERRQ(ierr);
+
+
+  DM             dm;
+  MatNullSpace   nullsp;
+  PetscErrorCode ierr;
+
+  PetscFunctionBegin;
+  ierr = TSGetDM(ts, &dm);CHKERRQ(ierr);
+  double    tt[1];
+
+
+  PetscDS ds;
+  ierr = DMGetDS(dm, &ds);CHKERRQ(ierr);
+  ierr = PetscDSSetObjective(ds, 0, objective);
+  ierr = DMPlexComputeIntegralFEM(dm,u,tt,NULL);CHKERRQ(ierr);
+
+
+   ierr = PetscPrintf(PETSC_COMM_WORLD, "Timestep: %04d time = %-8.4g, TotalEner = %f\n", (int) step, (double) time, (double) tt[0]);CHKERRQ(ierr);
+
+
+
 
     ierr = PetscObjectSetName((PetscObject) u, "Numerical Solution");CHKERRQ(ierr);
     ierr = VecViewFromOptions(u, NULL, "-sol_vec_view");CHKERRQ(ierr);
     PetscFunctionReturn(0);
 }
+
+static PetscErrorCode initialCondition(PetscInt dim, PetscReal time, const PetscReal x[], PetscInt Nc, PetscScalar *u, void *ctx)
+{
+
+  PetscScalar r = PetscSqrtReal(PetscSqr(x[0] -.5) + PetscSqr(x[1] - .5));
+
+
+  if (r < .25){
+    u[0] = 100;
+  }else{
+    u[0] = 1;
+  }
+
+  return(0);
+}
+
 
 
 int demo(int argc,char **args)
@@ -359,9 +413,17 @@ int demo(int argc,char **args)
     ierr = TSGetTime(ts, &t);CHKERRQ(ierr);
     ierr = DMSetOutputSequenceNumber(dm, 0, t);CHKERRQ(ierr);
 
-    VecSet(T, 1.0);
-    VecAssemblyBegin(T);
-    VecAssemblyEnd(T);
+
+    // Set the initial
+    PetscErrorCode (*func[1]) (PetscInt,PetscReal,const PetscReal [],PetscInt, PetscScalar *,void *);
+    void            *ctxs[1];
+    func[0] = initialCondition;
+    ctxs[0] = &user;
+    DMProjectFunctionLocal(dm, 0.0, func, ctxs, INSERT_ALL_VALUES, T);
+
+
+//    VecAssemblyBegin(T);
+//    VecAssemblyEnd(T);
     ierr = VecViewFromOptions(T, NULL, "-sol_start");CHKERRQ(ierr);
 
 
