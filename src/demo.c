@@ -19,28 +19,51 @@ typedef struct {
     PetscBag bag;     /* Holds problem parameters */
 } AppCtx;
 
-static void g3_temp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
-                    const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
-                    const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
-                    PetscReal t, PetscReal u_tShift, const PetscReal x[], PetscInt numConstants, const PetscScalar constants[], PetscScalar g3[])
+
+static PetscErrorCode cubic_u(PetscInt Dim, PetscReal time, const PetscReal X[], PetscInt Nf, PetscScalar *u, void *ctx)
 {
-    PetscInt d;
-    for (d = 0; d < dim; ++d) g3[d*dim+d] = 1.0;
+  u[0] = time + X[0]*X[0] + X[1]*X[1];
+  return 0;
 }
+static PetscErrorCode cubic_u_t(PetscInt Dim, PetscReal time, const PetscReal X[], PetscInt Nf, PetscScalar *u, void *ctx)
+{
+  u[0] = 1.0;
+  return 0;
+}
+
 
 static void g0_temp(PetscInt dim, PetscInt Nf, PetscInt NfAux,
                     const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
                     const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
                     PetscReal t, PetscReal u_tShift, const PetscReal x[], PetscInt numConstants, const PetscScalar constants[], PetscScalar g0[])
 {
-    g0[0] = u_tShift*1.0;
+    g0[0] = u_tShift/(u[0]*u[0]) - 2.0/(u[0]*u[0]*u[0])*u_t[0];
+//    g0[0] = -2.0/(u[0]*u[0]*u[0]);
+  if(PetscAbsReal(x[0] - 0.589279) < 1E-5 && PetscAbsReal(x[1] - 0.833195) < 1E-5) {
+      printf("g0_temp= %f, %f, %f, %f, (%f,%f)\n", u_t[0], g0[0], u[0], t, x[0],
+             x[1]);
+    }
 }
 
-static void f0_bd(PetscInt dim,PetscInt Nf,PetscInt NfAux,const PetscInt uOff[],const PetscInt uOff_x[],const PetscScalar u[],const PetscScalar u_t[],const PetscScalar u_x[],const PetscInt aOff[],const PetscInt aOff_x[],const PetscScalar a[],const PetscScalar a_t[],const PetscScalar a_x[],PetscReal t,const PetscReal x[],const PetscReal n[],PetscInt numConstants,const PetscScalar constants[],PetscScalar f0[])
+// integrand for test function gradient term
+static void f0_heat_conduction(PetscInt dim, PetscInt nf, PetscInt nfAux,
+                               const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
+                               const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
+                               PetscReal t, const PetscReal X[], PetscInt numConstants, const PetscScalar constants[], PetscScalar f0[])
 {
   PetscInt    d;
 
-  for (d=0; d<dim; ++d) f0[d] = -7.5;//-1000.0;
+  PetscReal T = t + X[0]*X[0] + X[1]*X[1];
+
+  f0[0] = -1.0/(T*T) * 1.0;
+  f0[0] += u_t[0]/(u[0]*u[0]);
+  if(PetscAbsReal(X[0] - 0.589279) < 1E-5 && PetscAbsReal(X[1] - 0.833195) < 1E-5) {
+    printf("f0_heat_= %f, %f, %f, %f, (%f,%f\n", u_t[0], f0[0], u[0], t, X[0],
+           X[1]);
+  }
+
+//  f0[0] += 1.0/(u[0]*u[0]);
+
 }
 
 static PetscErrorCode SetupParameters(AppCtx *user)
@@ -59,129 +82,21 @@ static PetscErrorCode SetupParameters(AppCtx *user)
     PetscFunctionReturn(0);
 }
 
-static PetscErrorCode boundary(PetscInt Dim, PetscReal time, const PetscReal X[], PetscInt Nf, PetscScalar *u, void *ctx)
+//static PetscErrorCode boundary(PetscInt Dim, PetscReal time, const PetscReal X[], PetscInt Nf, PetscScalar *u, void *ctx)
+//{
+//    u[0] = 1000;
+//    return 0;
+//}
+
+static PetscErrorCode CreateMesh(MPI_Comm comm, AppCtx *user, DM *dm)
 {
-    u[0] = 1000;
-    return 0;
-}
+  PetscErrorCode ierr;
 
-
-static PetscErrorCode CreateMesh(MPI_Comm comm, const char meshFile[], AppCtx *user, DM *dm)
-{
-    PetscErrorCode ierr;
-
-    PetscFunctionBeginUser;
-
-    /* Create mesh */
-    {
-        size_t len,i;
-        ierr = PetscStrlen(meshFile,&len);CHKERRQ(ierr);
-        if (!len) { /* a null name means just do a hex box */
-            ierr = DMPlexCreateBoxMesh(
-                    comm,
-                    2,// the number of dimensions
-                    SIMPLEX,// PETSC_TRUE for simplices, PETSC_FALSE for tensor cells
-                    NULL, // Number of faces per dimension, or NULL for (1,) in 1D and (2, 2) in 2D and (1, 1, 1) in 3D
-                    NULL, // The lower left corner, or NULL for (0, 0, 0)
-                    NULL, // The upper right corner, or NULL for (1, 1, 1)
-                    NULL, // The boundary type for the X,Y,Z direction, or NULL for
-                    PETSC_TRUE, // Flag to create intermediate mesh pieces
-                    dm);CHKERRQ(ierr);
-        } else {
-            ierr = DMPlexCreateFromFile(comm, meshFile, PETSC_TRUE, dm);CHKERRQ(ierr);
-        }
-    }
-
-    // distribute the mesh
-    {
-        PetscPartitioner part;
-        DM distributedMesh = NULL;
-
-        /* Distribute mesh over processes */
-        ierr = DMPlexGetPartitioner(*dm, &part);CHKERRQ(ierr);
-        ierr = PetscPartitionerSetFromOptions(part);CHKERRQ(ierr);
-        ierr = DMPlexDistribute(*dm, 0, NULL, &distributedMesh);CHKERRQ(ierr);
-        if (distributedMesh) {
-            ierr = DMDestroy(dm);
-            CHKERRQ(ierr);
-            *dm = distributedMesh;
-        }
-    }
-
-
-    // sets parameters in a DM from the options database
-    ierr = DMSetFromOptions(*dm);CHKERRQ(ierr);
-
-    // print the mesh based upon command line parameters
-    ierr = DMViewFromOptions(*dm, NULL, "-dm_view");CHKERRQ(ierr);
-
-    // Debug code, get the labels
-    int rank;
-    MPI_Comm_rank(comm, &rank);
-    if(rank == 0) {
-        PetscInt numberLabels;
-        DMGetNumLabels(*dm, &numberLabels);
-        printf("Number Labels: %d\n", numberLabels);
-        for (PetscInt labelId = 0; labelId < numberLabels; ++labelId) {
-            const char *labelName;
-            DMGetLabelName(*dm, labelId, &labelName);
-            printf("%d: %s\n", labelId, labelName);
-        }
-    }
-
-    PetscFunctionReturn(0);
-}
-
-// integrand for test function
-static void f0_heat_conduction(PetscInt dim, PetscInt nf, PetscInt nfAux,
-                           const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
-                           const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
-                           PetscReal t, const PetscReal X[], PetscInt numConstants, const PetscScalar constants[], PetscScalar f0[])
-{
-    if(dim != 2){
-        printf("Error: the number of dims should be 2");
-    }
-    if(nf != 1){
-        printf("Error: The number of fields should be 1");
-    }
-    if(nfAux != 0){
-        printf("Error: The number of aux fields should be 0");
-    }
-    if(numConstants != 2){
-        printf("Error: The number of numConstants should be 2");
-    }
-
-    // extract the constants
-    const PetscReal rhoCp = PetscRealPart(constants[0]);
-    f0[0] = rhoCp*u_t[uOff[0]];// + (X[0] > .1 ? 100 : 0.0);
-}
-
-// integrand for test function gradient term
-static void f1_heat_conduction(PetscInt dim, PetscInt nf, PetscInt nfAux,
-                               const PetscInt uOff[], const PetscInt uOff_x[], const PetscScalar u[], const PetscScalar u_t[], const PetscScalar u_x[],
-                               const PetscInt aOff[], const PetscInt aOff_x[], const PetscScalar a[], const PetscScalar a_t[], const PetscScalar a_x[],
-                               PetscReal t, const PetscReal X[], PetscInt numConstants, const PetscScalar constants[], PetscScalar f1[])
-{
-    if(dim != 2){
-        printf("Error: the number of dims should be 2");
-    }
-    if(nf != 1){
-        printf("Error: The number of fields should be 1");
-    }
-    if(nfAux != 0){
-        printf("Error: The number of aux fields should be 0");
-    }
-    if(numConstants != 2){
-        printf("Error: The number of numConstants should be 2");
-    }
-
-    const PetscReal k = PetscRealPart(constants[1]);
-    const PetscInt    Nc = dim;
-
-    for (PetscInt d = 0; d < dim; ++d) {
-        f1[d] = k*u_x[d];
-    }
-
+  PetscFunctionBeginUser;
+  ierr = DMPlexCreateBoxMesh(comm, 2, SIMPLEX, NULL, NULL, NULL, NULL, PETSC_TRUE, dm);CHKERRQ(ierr);
+  ierr = DMSetFromOptions(*dm);CHKERRQ(ierr);
+  ierr = DMViewFromOptions(*dm, NULL, "-dm_view");CHKERRQ(ierr);
+  PetscFunctionReturn(0);
 }
 
 static PetscErrorCode SetupProblem(DM dm, AppCtx *user)
@@ -199,10 +114,10 @@ static PetscErrorCode SetupProblem(DM dm, AppCtx *user)
             ds,
             0,// the test field number
             f0_heat_conduction, // f0	- integrand for the test function term
-            f1_heat_conduction    //f1	- integrand for the test function gradient term
+            NULL    //f1	- integrand for the test function gradient term
     );CHKERRQ(ierr);
-    ierr = PetscDSSetJacobian(ds, 0, 0, g0_temp, NULL, NULL, g3_temp);CHKERRQ(ierr);
-    ierr = PetscDSSetBdResidual(ds, 0, f0_bd, NULL);CHKERRQ(ierr);
+    ierr = PetscDSSetJacobian(ds, 0, 0, g0_temp, NULL, NULL, NULL);CHKERRQ(ierr);
+//    ierr = PetscDSSetBdResidual(ds, 0, f0_bd, NULL);CHKERRQ(ierr);
 
 
     /* Setup constants */
@@ -221,21 +136,21 @@ static PetscErrorCode SetupProblem(DM dm, AppCtx *user)
 
 
     // setup boundary
-    const PetscInt ids[] = {1, 2, 3, 4};
-    ierr = PetscDSAddBoundary(ds,
-                              DM_BC_NATURAL,// A Dirichlet condition using a function of the coordinates
-                              "bottom wall velocity",
-                              "Face Sets",//The label defining constrained points
-                              0,//The first field id temperature
-                              0,//The number of components, could be 1 or 0 (0 == all)
-                              NULL, // The components to constrain
-                              (void (*)(void))boundary,
-                              NULL, // A pointwise function giving the time derviative of the boundary values, or NULL
-                              4,
-                              ids,
-                              ctx);CHKERRQ(ierr);
+  PetscInt         id;
+  id   = 3;
+  ierr = PetscDSAddBoundary(ds, DM_BC_ESSENTIAL, "top wall velocity",    "marker", 0, 0, NULL, (void (*)(void)) cubic_u, (void (*)(void)) cubic_u_t, 1, &id, ctx);CHKERRQ(ierr);
+  id   = 1;
+  ierr = PetscDSAddBoundary(ds, DM_BC_ESSENTIAL, "bottom wall velocity", "marker", 0, 0, NULL, (void (*)(void)) cubic_u, (void (*)(void)) cubic_u_t, 1, &id, ctx);CHKERRQ(ierr);
+  id   = 2;
+  ierr = PetscDSAddBoundary(ds, DM_BC_ESSENTIAL, "right wall velocity",  "marker", 0, 0, NULL, (void (*)(void)) cubic_u, (void (*)(void)) cubic_u_t, 1, &id, ctx);CHKERRQ(ierr);
+  id   = 4;
+  ierr = PetscDSAddBoundary(ds, DM_BC_ESSENTIAL, "left wall velocity",   "marker", 0, 0, NULL, (void (*)(void)) cubic_u, (void (*)(void)) cubic_u_t, 1, &id, ctx);CHKERRQ(ierr);
 
-    PetscFunctionReturn(0);
+
+  ierr = PetscDSSetExactSolution(ds, 0, cubic_u, ctx);CHKERRQ(ierr);
+  ierr = PetscDSSetExactSolutionTimeDerivative(ds, 0, cubic_u_t, ctx);CHKERRQ(ierr);
+
+  PetscFunctionReturn(0);
 }
 
 
@@ -382,7 +297,7 @@ int demo(int argc,char **args)
 
     // Create the dm, kinda of like a domain
     DM dm;
-    CreateMesh(PETSC_COMM_WORLD, meshFile, &user, &dm);
+    CreateMesh(PETSC_COMM_WORLD, &user, &dm);
 
     // Sets the DM that may be used by some nonlinear solvers or preconditioners under the TS
     ierr = TSSetDM(ts, dm);CHKERRQ(ierr);
@@ -405,7 +320,7 @@ int demo(int argc,char **args)
 
     // Setup the time stepper
     ierr = TSSetExactFinalTime(ts, TS_EXACTFINALTIME_MATCHSTEP);CHKERRQ(ierr);
-    ierr = TSSetMaxTime(ts, 10.0);CHKERRQ(ierr);
+//    ierr = TSSetMaxTime(ts, 10.0);CHKERRQ(ierr);
     ierr = TSSetFromOptions(ts);CHKERRQ(ierr);
 
     // update the time step for the current time
@@ -417,7 +332,7 @@ int demo(int argc,char **args)
     // Set the initial
     PetscErrorCode (*func[1]) (PetscInt,PetscReal,const PetscReal [],PetscInt, PetscScalar *,void *);
     void            *ctxs[1];
-    func[0] = initialCondition;
+    func[0] = cubic_u;
     ctxs[0] = &user;
     DMProjectFunctionLocal(dm, 0.0, func, ctxs, INSERT_ALL_VALUES, T);
 
