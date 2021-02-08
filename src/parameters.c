@@ -39,5 +39,6 @@ PetscErrorCode SetupFlowParameters(PetscBag *flowParametersBag) {
     ierr = PetscBagRegisterReal(*flowParametersBag, &p->beta, 1.0, "beta", "non-dimensional thermal expansion coefficient ");CHKERRQ(ierr);
     ierr = PetscBagRegisterInt(*flowParametersBag, &p->gravityDirection, 0, "gravityDirection", "axis");CHKERRQ(ierr);
 
+    printf("max tot %d \n", TOTAlCONSTANTS);
     PetscFunctionReturn(0);
 }

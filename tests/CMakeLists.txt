@@ -2,6 +2,7 @@ add_subdirectory("${PROJECT_SOURCE_DIR}/extern/googletest" "extern/googletest")
 
 add_executable(tests "")
 target_link_libraries(tests PUBLIC gtest gmock ablateLibrary)
+add_executable(ablate flowTests.cpp)
 
 add_subdirectory(testFixtures)
 
@@ -26,3 +27,6 @@ add_custom_command(
         $<TARGET_FILE_DIR:tests>/outputs
 )
 
+# Keep a simple main statement
+target_link_libraries(ablate PRIVATE ablateLibrary)
+target_link_libraries(ablate PUBLIC gtest gmock ablateLibrary)

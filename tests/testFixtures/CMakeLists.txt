@@ -5,3 +5,10 @@ target_sources(tests
         MpiTestParamFixture.hpp
         MpiTestEventListener.h
         )
+target_sources(ablate
+        PRIVATE
+        MpiTestFixture.hpp
+        MpiTestFixture.cpp
+        MpiTestParamFixture.hpp
+        MpiTestEventListener.h
+        )

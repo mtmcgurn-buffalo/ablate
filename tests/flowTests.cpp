@@ -133,7 +133,6 @@ static PetscErrorCode MonitorError(TS ts, PetscInt step, PetscReal crtime, Vec u
 
     ierr = DMGetGlobalVector(dm, &u);
     CHKERRABORT(PETSC_COMM_WORLD, ierr);
-    // ierr = TSGetSolution(ts, &u);CHKERRABORT(PETSC_COMM_WORLD, ierr);
     ierr = PetscObjectSetName((PetscObject)u, "Numerical Solution");
     CHKERRABORT(PETSC_COMM_WORLD, ierr);
     ierr = VecViewFromOptions(u, NULL, "-sol_vec_view");
@@ -143,7 +142,6 @@ static PetscErrorCode MonitorError(TS ts, PetscInt step, PetscReal crtime, Vec u
 
     ierr = DMGetGlobalVector(dm, &v);
     CHKERRABORT(PETSC_COMM_WORLD, ierr);
-    // ierr = VecSet(v, 0.0);CHKERRABORT(PETSC_COMM_WORLD, ierr);
     ierr = DMProjectFunction(dm, 0.0, exactFuncs, ctxs, INSERT_ALL_VALUES, v);
     CHKERRABORT(PETSC_COMM_WORLD, ierr);
     ierr = PetscObjectSetName((PetscObject)v, "Exact Solution");
@@ -157,7 +155,7 @@ static PetscErrorCode MonitorError(TS ts, PetscInt step, PetscReal crtime, Vec u
 }
 
 // helper functions for generated code
-static PetscReal Power(PetscReal x, PetscInt exp) { return PetscPowReal(x, exp); }
+static PetscReal Power(PetscReal x, PetscReal exp) { return PetscPowReal(x, exp); }
 static PetscReal Cos(PetscReal x) { return PetscCosReal(x); }
 static PetscReal Sin(PetscReal x) { return PetscSinReal(x); }
 
@@ -277,10 +275,10 @@ static void SourceFunction(f0_incompressible_cubic_v) {
     const PetscReal x = X[0];
     const PetscReal y = X[1];
 
-    f0[0] -= rho * S + 3 * x + 3 * rho * Power(y, 2) * (t + 2 * Power(x, 3) - 3 * Power(x, 2) * y) + 3 * rho * Power(x, 2) * (t + Power(x, 3) + Power(y, 3)) -
-             (12. * mu * x + 1. * mu * (-6 * x + 6 * y)) / R;
-    f0[1] -= rho * S - (1. * mu * (12 * x - 6 * y)) / R + 3 * y - 3 * rho * Power(x, 2) * (t + 2 * Power(x, 3) - 3 * Power(x, 2) * y) +
-             rho * (6 * Power(x, 2) - 6 * x * y) * (t + Power(x, 3) + Power(y, 3));
+    f0[0] -= rho * S + 3.0 * x + 3.0 * rho * Power(y, 2.0) * (t + 2.0 * Power(x, 3.0) - 3.0 * Power(x, 2.0) * y) + 3 * rho * Power(x, 2.0) * (t + Power(x, 3.0) + Power(y, 3.0)) -
+             (12.0 * mu * x + 1.0 * mu * (-6.0 * x + 6.0 * y)) / R;
+    f0[1] -= rho * S - (1. * mu * (12.0 * x - 6.0 * y)) / R + 3.0 * y - 3.0 * rho * Power(x, 2.0) * (t + 2.0 * Power(x, 3.0) - 3.0 * Power(x, 2.0) * y) +
+             rho * (6.0 * Power(x, 2.0) - 6.0 * x * y) * (t + Power(x, 3.0) + Power(y, 3.0));
 }
 
 static void SourceFunction(f0_incompressible_cubic_w) {
@@ -294,7 +292,7 @@ static void SourceFunction(f0_incompressible_cubic_w) {
     const PetscReal x = X[0];
     const PetscReal y = X[1];
 
-    f0[0] -= (-2. * k) / P + Cp * rho * (S + 1. * y * (t + 2 * Power(x, 3) - 3 * Power(x, 2) * y) + 1. * x * (t + Power(x, 3) + Power(y, 3)));
+    f0[0] -= (-2. * k) / P + Cp * rho * (S + 1. * y * (t + 2.0 * Power(x, 3.0) - 3.0 * Power(x, 2.0) * y) + 1. * x * (t + Power(x, 3.0) + Power(y, 3.0)));
 }
 
 /*
@@ -546,8 +544,9 @@ static void SourceFunction(f0_lowMach_cubic_w) {
     f0[0] -= (-2 * k) / P + (Cp * Pth * (S + y * (t + 2 * Power(x, 3) + 3 * Power(x, 2) * y) + x * (t + Power(x, 3) + Power(y, 3)))) / (1 + t + Power(x, 2) / 2. + Power(y, 2) / 2.);
 }
 
-TEST_P(FlowMMS, MachMMSTests) {
-    StartWithMPI
+int main(int argc, char** argv) {
+//TEST_P(FlowMMS, MachMMSTests) {
+//    StartWithMPI
         DM dm;     /* problem definition */
         TS ts;     /* timestepper */
         Flow flow; /* user-defined work context */
@@ -555,10 +554,32 @@ TEST_P(FlowMMS, MachMMSTests) {
         PetscErrorCode ierr;
 
         // Get the testing param
-        auto testingParam = GetParam();
+//        auto testingParam = GetParam();
+        auto testingParam = (FlowMMSParameters){
+            .mpiTestParameter = {.testName = "incompressible 2d cubic tri_p3_p2_p2 with real coefficients",
+                .nproc = 1,
+                .expectedOutputFile = "outputs/incompressible_2d_tri_p3_p2_p2_real_coefficients",
+                .arguments = "-dm_plex_separate_marker -dm_refine 0 "
+                             "-vel_petscspace_degree 3 -pres_petscspace_degree 2 -temp_petscspace_degree 2 "
+                             "-dmts_check .001 -ts_max_steps 4 -ts_dt 0.1 "
+                             "-snes_convergence_test correct_pressure "
+                             "-ksp_type fgmres -ksp_gmres_restart 10 -ksp_rtol 1.0e-9 -ksp_error_if_not_converged "
+                             "-pc_type fieldsplit -pc_fieldsplit_0_fields 0,2 -pc_fieldsplit_1_fields 1 -pc_fieldsplit_type schur -pc_fieldsplit_schur_factorization_type full "
+                             "-fieldsplit_0_pc_type lu "
+                             "-fieldsplit_pressure_ksp_rtol 1e-10 -fieldsplit_pressure_pc_type jacobi "
+                             "-pth 91282.5 -strouhal 0.00242007695844728 -reynolds 23126.2780617827 -froude 0.316227766016838 -peclet 16373.1785965753 "
+                             "-heatRelease 0.00831162126672484 -gamma 0.285337972166998 -mu 1.1 -k 1.2 -cp 1.3 "},
+            .flowType = FLOWINCOMPRESSIBLE,
+            .uExact = incompressible_cubic_u,
+            .pExact = incompressible_cubic_p,
+            .TExact = incompressible_cubic_T,
+            .u_tExact = incompressible_cubic_u_t,
+            .T_tExact = incompressible_cubic_T_t,
+            .f0_v = f0_incompressible_cubic_v,
+            .f0_w = f0_incompressible_cubic_w};
 
         // initialize petsc and mpi
-        PetscInitialize(argc, argv, NULL, help);
+        PetscInitialize(&argc, &argv, NULL, help);
 
         // setup the ts
         ierr = TSCreate(PETSC_COMM_WORLD, &ts);
@@ -696,8 +717,10 @@ TEST_P(FlowMMS, MachMMSTests) {
         ierr = FlowDestroy(&flow);
         CHKERRABORT(PETSC_COMM_WORLD, ierr);
         ierr = PetscFinalize();
-        exit(ierr);
-    EndWithMPI
+        return ierr;
+//        exit(ierr);
+#//    EndWithMPI
+//}
 }
 
 INSTANTIATE_TEST_SUITE_P(

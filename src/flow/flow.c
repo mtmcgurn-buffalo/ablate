@@ -6,8 +6,15 @@ PetscErrorCode FlowCreate(Flow* flow, FlowType type, DM dm) {
     *flow = malloc(sizeof(struct _Flow));
 
     // associate the dm
+    (*flow)->parameters = NULL;
     (*flow)->dm = dm;
+    (*flow)->flowField = NULL;
     (*flow)->data = NULL;
+    (*flow)->setupDiscretization = NULL;
+    (*flow)->startProblemSetup = NULL;
+    (*flow)->completeProblemSetup = NULL;
+    (*flow)->completeFlowInitialization = NULL;
+    (*flow)->destroy = NULL;
 
     PetscErrorCode ierr = DMSetApplicationContext(dm, *flow);CHKERRQ(ierr);
 
